@@ -231,13 +231,16 @@ app.get("/api/sales", async (req, res) => {
 // ================= TABLE BOOKING =================
 app.get("/api/table-booking", async (req, res) => {
   try {
-    const result = await pool.query("SELECT * FROM table_booking ORDER BY table_number ASC");
+    const result = await pool.query(
+      "SELECT id, table_number, customer_name, phone_number, booking_date, booking_time, start_time, end_time, note, people FROM table_booking ORDER BY id ASC"
+    );
     res.json(result.rows);
   } catch (error) {
     console.error("❌ Error fetching table bookings:", error);
     res.status(500).json({ error: "❌ Failed to fetch table bookings" });
   }
 });
+
 
 app.post("/api/table-booking", async (req, res) => {
   const {
