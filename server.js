@@ -34,214 +34,56 @@ pool.connect()
 
 const upload = multer({ dest: "uploads/" });
 
+// Test Route
 app.get("/", (req, res) => {
   res.send("✅ POS API is running!");
 });
 
-// ================= USER ROUTES =================
-app.post("/api/users/login", async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) return res.status(400).json({ success: false, message: "❌ Missing credentials" });
-
-  try {
-    const result = await pool.query("SELECT * FROM users WHERE username = $1 AND password = $2", [username, password]);
-    if (result.rows.length === 0) return res.status(401).json({ success: false, message: "❌ Invalid credentials" });
-
-    const user = result.rows[0];
-    res.status(200).json({ success: true, message: "✅ Login successful", role: user.role, user });
-  } catch (error) {
-    console.error("❌ Login error:", error);
-    res.status(500).json({ success: false, message: "❌ Server error. Please try again." });
-  }
-});
-
-app.post("/api/users", async (req, res) => {
-  const { username, password, role } = req.body;
-  if (!username || !password || !role) return res.status(400).json({ error: "❌ Missing required fields" });
-
-  try {
-    const existing = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
-    if (existing.rows.length > 0) return res.status(400).json({ error: "❌ Username already exists" });
-
-    const result = await pool.query(
-      "INSERT INTO users (username, password, role) VALUES ($1, $2, $3) RETURNING id, username, role",
-      [username, password, role]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (error) {
-    console.error("❌ Error adding user:", error);
-    res.status(500).json({ error: "❌ Failed to add user" });
-  }
-});
-
-app.get("/api/users", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT id, username, role FROM users ORDER BY id ASC");
-    res.json(result.rows);
-  } catch (error) {
-    console.error("❌ Error fetching users:", error);
-    res.status(500).json({ error: "❌ Failed to fetch users" });
-  }
-});
-
-app.delete("/api/users/:id", async (req, res) => {
-  const { id } = req.params;
-  try {
-    await pool.query("DELETE FROM users WHERE id = $1", [id]);
-    res.json({ message: "✅ User deleted successfully!" });
-  } catch (error) {
-    console.error("❌ Error deleting user:", error);
-    res.status(500).json({ error: "❌ Failed to delete user" });
-  }
-});
-
-// ================= MENU ROUTES =================
-app.get("/api/menu", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT id, name, category, price FROM menu ORDER BY id ASC");
-    res.json(result.rows);
-  } catch (error) {
-    console.error("❌ Error fetching menu:", error);
-    res.status(500).json({ error: "❌ Failed to fetch menu" });
-  }
-});
-
-app.post("/api/menu", upload.single("image"), async (req, res) => {
-  try {
-    const { name, category, price } = req.body;
-    if (!name || !category || !price || !req.file) return res.status(400).json({ error: "❌ Missing fields or image" });
-
-    const imageBuffer = fs.readFileSync(req.file.path);
-    const result = await pool.query(
-      "INSERT INTO menu (name, category, price, image) VALUES ($1, $2, $3, $4) RETURNING *",
-      [name, category, price, imageBuffer]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (error) {
-    console.error("❌ Error adding menu item:", error);
-    res.status(500).json({ error: "❌ Failed to add menu item" });
-  }
-});
-
-app.delete("/api/menu/:id", async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await pool.query("DELETE FROM menu WHERE id = $1 RETURNING *", [id]);
-    res.json({ message: "✅ Menu item deleted", deletedItem: result.rows[0] });
-  } catch (error) {
-    console.error("❌ Error deleting menu item:", error);
-    res.status(500).json({ error: "❌ Failed to delete menu item" });
-  }
-});
-
-// ================= ORDER ROUTES =================
-app.get("/api/orders", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT * FROM orders ORDER BY id DESC");
-    res.json(result.rows);
-  } catch (error) {
-    console.error("❌ Error fetching orders:", error);
-    res.status(500).json({ error: "❌ Failed to fetch orders" });
-  }
-});
-
-app.post("/api/orders", async (req, res) => {
-  const { customer_name, order_number, payment_method, total_amount, status, order_date } = req.body;
-  if (!customer_name || !order_number || !payment_method || !total_amount || !status) {
-    return res.status(400).json({ error: "❌ Missing required fields" });
-  }
-
-  try {
-    const result = await pool.query(
-      "INSERT INTO orders (customer_name, order_number, payment_method, total_amount, status, order_date) VALUES ($1, $2, $3, $4, $5, COALESCE($6, NOW())) RETURNING *",
-      [customer_name, order_number, payment_method, total_amount, status, order_date || null]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (error) {
-    console.error("❌ Error saving order:", error);
-    res.status(500).json({ error: "❌ Failed to save order" });
-  }
-});
-
-app.get("/api/orders/pending", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT * FROM orders WHERE status = 'pending' ORDER BY id DESC");
-    res.json(result.rows);
-  } catch (error) {
-    console.error("❌ Error fetching pending orders:", error);
-    res.status(500).json({ error: "❌ Failed to fetch pending orders" });
-  }
-});
-
-app.get("/api/orders/:id/status", async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await pool.query("SELECT status FROM orders WHERE id = $1", [id]);
-    if (result.rows.length === 0) return res.status(404).json({ error: "❌ Order not found" });
-    res.json({ status: result.rows[0].status });
-  } catch (error) {
-    console.error("❌ Error checking order status:", error);
-    res.status(500).json({ error: "❌ Failed to check order status" });
-  }
-});
-
-app.post("/api/orders/:id/approve", async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await pool.query("UPDATE orders SET status = 'approved' WHERE id = $1 RETURNING *", [id]);
-    if (result.rowCount === 0) return res.status(404).json({ error: "❌ Order not found" });
-    res.json({ success: true, message: "✅ Order approved", order: result.rows[0] });
-  } catch (error) {
-    console.error("❌ Error approving order:", error);
-    res.status(500).json({ error: "❌ Failed to approve order" });
-  }
-});
-
-app.post("/api/orders/:id/reject", async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await pool.query("UPDATE orders SET status = 'rejected' WHERE id = $1 RETURNING *", [id]);
-    if (result.rowCount === 0) return res.status(404).json({ error: "❌ Order not found" });
-    res.json({ success: true, message: "✅ Order rejected", order: result.rows[0] });
-  } catch (error) {
-    console.error("❌ Error rejecting order:", error);
-    res.status(500).json({ error: "❌ Failed to reject order" });
-  }
-});
-
-// ================= SALES REPORT =================
-app.get("/api/sales", async (req, res) => {
-  const { type } = req.query;
-  let groupBy;
-  if (type === "monthly") groupBy = "TO_CHAR(order_date, 'YYYY-MM')";
-  else if (type === "yearly") groupBy = "TO_CHAR(order_date, 'YYYY')";
-  else groupBy = "TO_CHAR(order_date, 'YYYY-MM-DD')";
-
-  try {
-    const result = await pool.query(
-      `SELECT ${groupBy} AS label, SUM(total_amount)::numeric(10,2) AS total FROM orders GROUP BY label ORDER BY label ASC`
-    );
-    res.json(result.rows);
-  } catch (error) {
-    console.error("❌ Error fetching sales data:", error);
-    res.status(500).json({ error: "❌ Failed to fetch sales data" });
-  }
-});
-
 // ================= TABLE BOOKING =================
 app.post("/api/table-booking", async (req, res) => {
-  const { table_number, customer_name, phone_number, booking_date, booking_time } = req.body;
+  const {
+    table_number,
+    customer_name,
+    phone_number,
+    start_time,
+    end_time,
+    note,
+    people
+  } = req.body;
 
-  if (!table_number || !customer_name || !phone_number) {
+  console.log("📥 Incoming booking:", req.body);
+
+  if (!table_number || !customer_name || !phone_number || !start_time || !end_time) {
     return res.status(400).json({ error: "❌ Missing required fields" });
   }
 
   try {
-    const result = await pool.query(
-      `INSERT INTO table_booking (table_number, customer_name, phone_number, booking_date, booking_time)
-       VALUES ($1, $2, $3, COALESCE($4, CURRENT_DATE), COALESCE($5, CURRENT_TIME)) RETURNING *`,
-      [table_number, customer_name, phone_number, booking_date || null, booking_time || null]
+    const conflictCheck = await pool.query(
+      `SELECT * FROM table_booking
+       WHERE table_number = $1
+       AND NOT ($3 <= start_time OR $2 >= end_time)`,
+      [table_number, start_time, end_time]
     );
+
+    if (conflictCheck.rows.length > 0) {
+      return res.status(409).json({ error: "❌ This table is already booked for the selected time." });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO table_booking 
+        (table_number, customer_name, phone_number, start_time, end_time, note, people)
+       VALUES ($1, $2, $3, $4::timestamp, $5::timestamp, $6, $7) RETURNING *`,
+      [
+        table_number,
+        customer_name,
+        phone_number,
+        start_time,
+        end_time,
+        note || null,
+        people || 1
+      ]
+    );
+
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error("❌ Error booking table:", error);
