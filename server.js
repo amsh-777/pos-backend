@@ -249,26 +249,54 @@ app.post("/api/table-booking", async (req, res) => {
   }
 });
 
-app.get("/api/table-booking", async (req, res) => {
+app.post("/api/table-booking", async (req, res) => {
+  const {
+    table_number,
+    customer_name,
+    phone_number,
+    booking_date,
+    booking_time,
+    note,
+    people,
+  } = req.body;
+
+  if (!table_number || !customer_name || !phone_number || !booking_date || !booking_time) {
+    return res.status(400).json({ error: "❌ Missing required fields" });
+  }
+
   try {
-    const result = await pool.query("SELECT * FROM table_booking ORDER BY table_number ASC");
-    res.json(result.rows);
+    // Construct full start_time and end_time
+    const startTime = `${booking_date} ${booking_time}`;
+    const [hour, minute] = booking_time.split(":").map(Number);
+    const end = new Date(`${booking_date}T${booking_time}`);
+    end.setMinutes(end.getMinutes() + 60);
+    const endTime = end.toISOString().replace("T", " ").substring(0, 19);
+
+    const result = await pool.query(
+      `INSERT INTO table_booking 
+       (table_number, customer_name, phone_number, booking_date, booking_time, start_time, end_time, note, people, status)
+       VALUES ($1, $2, $3, $4, $5, $6::timestamp, $7::timestamp, $8, $9, 'pending') 
+       RETURNING *`,
+      [
+        table_number,
+        customer_name,
+        phone_number,
+        booking_date,
+        booking_time,
+        startTime,
+        endTime,
+        note || null,
+        people || null,
+      ]
+    );
+
+    res.status(201).json(result.rows[0]);
   } catch (error) {
-    console.error("❌ Error fetching table bookings:", error);
-    res.status(500).json({ error: "❌ Failed to fetch table bookings" });
+    console.error("❌ Error booking table:", error);
+    res.status(500).json({ error: "❌ Failed to book table" });
   }
 });
 
-app.delete("/api/table-booking/:id", async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await pool.query("DELETE FROM table_booking WHERE id = $1 RETURNING *", [id]);
-    res.json({ message: "✅ Table unbooked successfully!", deletedBooking: result.rows[0] });
-  } catch (error) {
-    console.error("❌ Error unbooking table:", error);
-    res.status(500).json({ error: "❌ Failed to unbook table" });
-  }
-});
 
 // ================= START SERVER =================
 app.listen(PORT, () => {
