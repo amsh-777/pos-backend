@@ -229,23 +229,13 @@ app.get("/api/sales", async (req, res) => {
 });
 
 // ================= TABLE BOOKING =================
-app.post("/api/table-booking", async (req, res) => {
-  const { table_number, customer_name, phone_number, booking_date, booking_time } = req.body;
-
-  if (!table_number || !customer_name || !phone_number) {
-    return res.status(400).json({ error: "❌ Missing required fields" });
-  }
-
+app.get("/api/table-booking", async (req, res) => {
   try {
-    const result = await pool.query(
-      `INSERT INTO table_booking (table_number, customer_name, phone_number, booking_date, booking_time)
-       VALUES ($1, $2, $3, COALESCE($4, CURRENT_DATE), COALESCE($5, CURRENT_TIME)) RETURNING *`,
-      [table_number, customer_name, phone_number, booking_date || null, booking_time || null]
-    );
-    res.status(201).json(result.rows[0]);
+    const result = await pool.query("SELECT * FROM table_booking ORDER BY table_number ASC");
+    res.json(result.rows);
   } catch (error) {
-    console.error("❌ Error booking table:", error);
-    res.status(500).json({ error: "❌ Failed to book table" });
+    console.error("❌ Error fetching table bookings:", error);
+    res.status(500).json({ error: "❌ Failed to fetch table bookings" });
   }
 });
 
@@ -265,10 +255,9 @@ app.post("/api/table-booking", async (req, res) => {
   }
 
   try {
-    const [hour, minute] = booking_time.split(":").map(Number);
     const start = new Date(`${booking_date}T${booking_time}:00`);
     const end = new Date(start);
-    end.setHours(start.getHours() + 1); // 1-hour duration
+    end.setHours(start.getHours() + 1); // Add 1 hour to start time
 
     const result = await pool.query(
       `INSERT INTO table_booking 
@@ -294,7 +283,6 @@ app.post("/api/table-booking", async (req, res) => {
     res.status(500).json({ error: "❌ Failed to book table" });
   }
 });
-
 
 app.delete("/api/table-booking/:id", async (req, res) => {
   const { id } = req.params;
