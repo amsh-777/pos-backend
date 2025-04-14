@@ -250,20 +250,23 @@ app.post("/api/table-booking", async (req, res) => {
     table_number,
     customer_name,
     phone_number,
-    booking_date,
-    booking_time,
+    start_time,
+    end_time,
     note,
     people,
   } = req.body;
 
-  if (!table_number || !customer_name || !phone_number || !booking_date || !booking_time) {
+  // Validate
+  if (!table_number || !customer_name || !phone_number || !start_time || !end_time) {
     return res.status(400).json({ error: "❌ Missing required fields" });
   }
 
   try {
-    const start = new Date(`${booking_date}T${booking_time}:00`);
-    const end = new Date(start);
-    end.setHours(start.getHours() + 1); // Add 1 hour to start time
+    const start = new Date(start_time);
+    const end = new Date(end_time);
+
+    const booking_date = start.toISOString().split("T")[0];
+    const booking_time = start.toISOString().split("T")[1].substring(0, 5); // HH:MM
 
     const result = await pool.query(
       `INSERT INTO table_booking 
@@ -289,6 +292,7 @@ app.post("/api/table-booking", async (req, res) => {
     res.status(500).json({ error: "❌ Failed to book table" });
   }
 });
+
 
 app.delete("/api/table-booking/:id", async (req, res) => {
   const { id } = req.params;
