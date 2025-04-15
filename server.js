@@ -10,10 +10,12 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5001;
 
+// ✅ Middleware
 app.use(cors({ origin: "*", credentials: true }));
 app.use(express.json());
 app.use(bodyParser.json());
 
+// ✅ PostgreSQL Pool
 const pool = new Pool({
   user: process.env.DB_USER || "postgres",
   host: process.env.DB_HOST || "localhost",
@@ -30,13 +32,17 @@ pool.connect()
     process.exit(1);
   });
 
+// ✅ File Upload Setup
 const upload = multer({ dest: "uploads/" });
 
+// ✅ Test Route
 app.get("/", (req, res) => {
   res.send("✅ POS API is running!");
 });
 
-// === USER ROUTES ===
+/* ============================
+   🔐 USER ROUTES
+============================ */
 app.post("/api/users/login", async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ success: false, message: "❌ Missing credentials" });
@@ -89,7 +95,9 @@ app.delete("/api/users/:id", async (req, res) => {
   }
 });
 
-// === MENU ROUTES ===
+/* ============================
+   📋 MENU ROUTES
+============================ */
 app.get("/api/menu", async (req, res) => {
   try {
     const result = await pool.query("SELECT id, name, category, price FROM menu ORDER BY id ASC");
@@ -127,7 +135,9 @@ app.delete("/api/menu/:id", async (req, res) => {
   }
 });
 
-// === ORDER ROUTES ===
+/* ============================
+   🧾 ORDER ROUTES
+============================ */
 app.get("/api/orders", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM orders ORDER BY id DESC");
@@ -221,7 +231,9 @@ app.post("/api/orders/:id/reject", async (req, res) => {
   }
 });
 
-// === SALES REPORT ===
+/* ============================
+   📈 SALES REPORT
+============================ */
 app.get("/api/sales", async (req, res) => {
   const { type } = req.query;
   let groupBy;
@@ -239,7 +251,9 @@ app.get("/api/sales", async (req, res) => {
   }
 });
 
-// === TABLE BOOKING ===
+/* ============================
+   🍽️ TABLE BOOKING
+============================ */
 app.get("/api/table-booking", async (req, res) => {
   try {
     const result = await pool.query(
@@ -254,13 +268,8 @@ app.get("/api/table-booking", async (req, res) => {
 
 app.post("/api/table-booking", async (req, res) => {
   const {
-    table_number,
-    customer_name,
-    phone_number,
-    start_time,
-    end_time,
-    note,
-    people,
+    table_number, customer_name, phone_number,
+    start_time, end_time, note, people
   } = req.body;
 
   if (!table_number || !customer_name || !phone_number || !start_time || !end_time) {
@@ -277,17 +286,7 @@ app.post("/api/table-booking", async (req, res) => {
         (table_number, customer_name, phone_number, booking_date, booking_time, start_time, end_time, note, people)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
-      [
-        table_number,
-        customer_name,
-        phone_number,
-        booking_date,
-        booking_time,
-        start.toISOString(),
-        end.toISOString(),
-        note || null,
-        people || null,
-      ]
+      [table_number, customer_name, phone_number, booking_date, booking_time, start.toISOString(), end.toISOString(), note || null, people || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
@@ -307,6 +306,7 @@ app.delete("/api/table-booking/:id", async (req, res) => {
   }
 });
 
+// ✅ Start Server
 app.listen(PORT, () => {
   console.log(`✅ Server is running at http://localhost:${PORT}`);
 });
