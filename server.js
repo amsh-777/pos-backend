@@ -151,25 +151,70 @@ app.get("/api/orders", async (req, res) => {
 app.post("/api/orders", async (req, res) => {
   const {
     customer_name, order_number, payment_method, total_amount, status,
-    order_date, source, note
+    order_date, source, note, items
   } = req.body;
+
   if (!customer_name || !order_number || !payment_method || !total_amount || !status) {
     return res.status(400).json({ error: "❌ Missing required fields" });
   }
+
+  const client = await pool.connect();
   try {
-    const result = await pool.query(
+    await client.query("BEGIN");
+
+    const orderResult = await client.query(
       `INSERT INTO orders (
         customer_name, order_number, payment_method, total_amount, status,
         order_date, source, note
       ) VALUES (
         $1, $2, $3, $4, $5, COALESCE($6, NOW()), $7, $8
-      ) RETURNING *`,
+      ) RETURNING id`,
       [customer_name, order_number, payment_method, total_amount, status, order_date || null, source || "pos", note || null]
     );
-    res.status(201).json(result.rows[0]);
+
+    const orderId = orderResult.rows[0].id;
+
+    if (items && Array.isArray(items)) {
+      for (const item of items) {
+        await client.query(
+          `INSERT INTO order_items (order_id, menu_id, quantity) VALUES ($1, $2, $3)`,
+          [orderId, item.menu_id, item.quantity]
+        );
+      }
+    }
+
+    await client.query("COMMIT");
+    res.status(201).json({ order_id: orderId });
   } catch (error) {
+    await client.query("ROLLBACK");
     console.error("❌ Error saving order:", error);
     res.status(500).json({ error: "❌ Failed to save order" });
+  } finally {
+    client.release();
+  }
+});
+
+app.get("/api/orders/pending", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM orders WHERE status = 'pending' ORDER BY id DESC");
+
+    const ordersWithItems = await Promise.all(
+      result.rows.map(async (order) => {
+        const itemsRes = await pool.query(
+          `SELECT m.name, oi.quantity, m.price
+           FROM order_items oi
+           JOIN menu m ON oi.menu_id = m.id
+           WHERE oi.order_id = $1`,
+          [order.id]
+        );
+        return { ...order, items: itemsRes.rows };
+      })
+    );
+
+    res.json(ordersWithItems);
+  } catch (error) {
+    console.error("❌ Error fetching pending orders with items:", error);
+    res.status(500).json({ error: "❌ Failed to fetch pending orders with items" });
   }
 });
 
@@ -182,16 +227,6 @@ app.post("/api/orders/:id/prepare", async (req, res) => {
   } catch (error) {
     console.error("❌ Error preparing order:", error);
     res.status(500).json({ error: "❌ Failed to mark as prepared" });
-  }
-});
-
-app.get("/api/orders/pending", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT * FROM orders WHERE status = 'pending' ORDER BY id DESC");
-    res.json(result.rows);
-  } catch (error) {
-    console.error("❌ Error fetching pending orders:", error);
-    res.status(500).json({ error: "❌ Failed to fetch pending orders" });
   }
 });
 
