@@ -140,12 +140,20 @@ app.get("/api/orders", async (req, res) => {
 
 app.post("/api/orders", async (req, res) => {
   const {
-    customer_name, order_number, payment_method, total_amount, status,
-    order_date, source, note
+    customer_name,
+    order_number,
+    payment_method,
+    total_amount,
+    status,
+    order_date,
+    source,
+    note
   } = req.body;
+
   if (!customer_name || !order_number || !payment_method || !total_amount || !status) {
     return res.status(400).json({ error: "❌ Missing required fields" });
   }
+
   try {
     const result = await pool.query(
       `INSERT INTO orders (
@@ -154,7 +162,16 @@ app.post("/api/orders", async (req, res) => {
       ) VALUES (
         $1, $2, $3, $4, $5, COALESCE($6, NOW()), $7, $8
       ) RETURNING *`,
-      [customer_name, order_number, payment_method, total_amount, status, order_date || null, source || "pos", note || null]
+      [
+        customer_name,
+        order_number,
+        payment_method,
+        total_amount,
+        status,
+        order_date || null,
+        source || "pos",
+        note || null
+      ]
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
@@ -218,90 +235,6 @@ app.post("/api/orders/:id/reject", async (req, res) => {
   } catch (error) {
     console.error("❌ Error rejecting order:", error);
     res.status(500).json({ error: "❌ Failed to reject order" });
-  }
-});
-
-// === SALES REPORT ===
-app.get("/api/sales", async (req, res) => {
-  const { type } = req.query;
-  let groupBy;
-  if (type === "monthly") groupBy = "TO_CHAR(order_date, 'YYYY-MM')";
-  else if (type === "yearly") groupBy = "TO_CHAR(order_date, 'YYYY')";
-  else groupBy = "TO_CHAR(order_date, 'YYYY-MM-DD')";
-  try {
-    const result = await pool.query(
-      `SELECT ${groupBy} AS label, SUM(total_amount)::numeric(10,2) AS total FROM orders GROUP BY label ORDER BY label ASC`
-    );
-    res.json(result.rows);
-  } catch (error) {
-    console.error("❌ Error fetching sales data:", error);
-    res.status(500).json({ error: "❌ Failed to fetch sales data" });
-  }
-});
-
-// === TABLE BOOKING ===
-app.get("/api/table-booking", async (req, res) => {
-  try {
-    const result = await pool.query(
-      "SELECT id, table_number, customer_name, phone_number, booking_date, booking_time, start_time, end_time, note, people FROM table_booking ORDER BY id ASC"
-    );
-    res.json(result.rows);
-  } catch (error) {
-    console.error("❌ Error fetching table bookings:", error);
-    res.status(500).json({ error: "❌ Failed to fetch table bookings" });
-  }
-});
-
-app.post("/api/table-booking", async (req, res) => {
-  const {
-    table_number,
-    customer_name,
-    phone_number,
-    start_time,
-    end_time,
-    note,
-    people,
-  } = req.body;
-  if (!table_number || !customer_name || !phone_number || !start_time || !end_time) {
-    return res.status(400).json({ error: "❌ Missing required fields" });
-  }
-  try {
-    const start = new Date(start_time);
-    const end = new Date(end_time);
-    const booking_date = start.toISOString().split("T")[0];
-    const booking_time = start.toISOString().split("T")[1].substring(0, 5);
-    const result = await pool.query(
-      `INSERT INTO table_booking 
-        (table_number, customer_name, phone_number, booking_date, booking_time, start_time, end_time, note, people)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING *`,
-      [
-        table_number,
-        customer_name,
-        phone_number,
-        booking_date,
-        booking_time,
-        start.toISOString(),
-        end.toISOString(),
-        note || null,
-        people || null,
-      ]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (error) {
-    console.error("❌ Error booking table:", error);
-    res.status(500).json({ error: "❌ Failed to book table" });
-  }
-});
-
-app.delete("/api/table-booking/:id", async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await pool.query("DELETE FROM table_booking WHERE id = $1 RETURNING *", [id]);
-    res.json({ message: "✅ Table unbooked successfully!", deletedBooking: result.rows[0] });
-  } catch (error) {
-    console.error("❌ Error unbooking table:", error);
-    res.status(500).json({ error: "❌ Failed to unbook table" });
   }
 });
 
