@@ -10,15 +10,10 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-// Middleware
-app.use(cors({
-  origin: "*", 
-  credentials: true
-}));
+app.use(cors({ origin: "*", credentials: true }));
 app.use(express.json());
 app.use(bodyParser.json());
 
-// PostgreSQL Setup
 const pool = new Pool({
   user: process.env.DB_USER || "postgres",
   host: process.env.DB_HOST || "localhost",
@@ -41,15 +36,13 @@ app.get("/", (req, res) => {
   res.send("✅ POS API is running!");
 });
 
-// ================= USER ROUTES =================
+// === USER ROUTES ===
 app.post("/api/users/login", async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ success: false, message: "❌ Missing credentials" });
-
   try {
     const result = await pool.query("SELECT * FROM users WHERE username = $1 AND password = $2", [username, password]);
     if (result.rows.length === 0) return res.status(401).json({ success: false, message: "❌ Invalid credentials" });
-
     const user = result.rows[0];
     res.status(200).json({ success: true, message: "✅ Login successful", role: user.role, user });
   } catch (error) {
@@ -61,11 +54,9 @@ app.post("/api/users/login", async (req, res) => {
 app.post("/api/users", async (req, res) => {
   const { username, password, role } = req.body;
   if (!username || !password || !role) return res.status(400).json({ error: "❌ Missing required fields" });
-
   try {
     const existing = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
     if (existing.rows.length > 0) return res.status(400).json({ error: "❌ Username already exists" });
-
     const result = await pool.query(
       "INSERT INTO users (username, password, role) VALUES ($1, $2, $3) RETURNING id, username, role",
       [username, password, role]
@@ -98,7 +89,7 @@ app.delete("/api/users/:id", async (req, res) => {
   }
 });
 
-// ================= MENU ROUTES =================
+// === MENU ROUTES ===
 app.get("/api/menu", async (req, res) => {
   try {
     const result = await pool.query("SELECT id, name, category, price FROM menu ORDER BY id ASC");
@@ -113,7 +104,6 @@ app.post("/api/menu", upload.single("image"), async (req, res) => {
   try {
     const { name, category, price } = req.body;
     if (!name || !category || !price || !req.file) return res.status(400).json({ error: "❌ Missing fields or image" });
-
     const imageBuffer = fs.readFileSync(req.file.path);
     const result = await pool.query(
       "INSERT INTO menu (name, category, price, image) VALUES ($1, $2, $3, $4) RETURNING *",
@@ -137,7 +127,7 @@ app.delete("/api/menu/:id", async (req, res) => {
   }
 });
 
-// ================= ORDER ROUTES =================
+// === ORDER ROUTES ===
 app.get("/api/orders", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM orders ORDER BY id DESC");
@@ -149,20 +139,39 @@ app.get("/api/orders", async (req, res) => {
 });
 
 app.post("/api/orders", async (req, res) => {
-  const { customer_name, order_number, payment_method, total_amount, status, order_date } = req.body;
+  const {
+    customer_name, order_number, payment_method, total_amount, status,
+    order_date, source, note
+  } = req.body;
   if (!customer_name || !order_number || !payment_method || !total_amount || !status) {
     return res.status(400).json({ error: "❌ Missing required fields" });
   }
-
   try {
     const result = await pool.query(
-      "INSERT INTO orders (customer_name, order_number, payment_method, total_amount, status, order_date) VALUES ($1, $2, $3, $4, $5, COALESCE($6, NOW())) RETURNING *",
-      [customer_name, order_number, payment_method, total_amount, status, order_date || null]
+      `INSERT INTO orders (
+        customer_name, order_number, payment_method, total_amount, status,
+        order_date, source, note
+      ) VALUES (
+        $1, $2, $3, $4, $5, COALESCE($6, NOW()), $7, $8
+      ) RETURNING *`,
+      [customer_name, order_number, payment_method, total_amount, status, order_date || null, source || "pos", note || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error("❌ Error saving order:", error);
     res.status(500).json({ error: "❌ Failed to save order" });
+  }
+});
+
+app.post("/api/orders/:id/prepare", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query("UPDATE orders SET status = 'prepared' WHERE id = $1 RETURNING *", [id]);
+    if (result.rowCount === 0) return res.status(404).json({ error: "❌ Order not found" });
+    res.json({ success: true, message: "✅ Order marked as prepared", order: result.rows[0] });
+  } catch (error) {
+    console.error("❌ Error preparing order:", error);
+    res.status(500).json({ error: "❌ Failed to mark as prepared" });
   }
 });
 
@@ -212,14 +221,13 @@ app.post("/api/orders/:id/reject", async (req, res) => {
   }
 });
 
-// ================= SALES REPORT =================
+// === SALES REPORT ===
 app.get("/api/sales", async (req, res) => {
   const { type } = req.query;
   let groupBy;
   if (type === "monthly") groupBy = "TO_CHAR(order_date, 'YYYY-MM')";
   else if (type === "yearly") groupBy = "TO_CHAR(order_date, 'YYYY')";
   else groupBy = "TO_CHAR(order_date, 'YYYY-MM-DD')";
-
   try {
     const result = await pool.query(
       `SELECT ${groupBy} AS label, SUM(total_amount)::numeric(10,2) AS total FROM orders GROUP BY label ORDER BY label ASC`
@@ -231,7 +239,7 @@ app.get("/api/sales", async (req, res) => {
   }
 });
 
-// ================= TABLE BOOKING =================
+// === TABLE BOOKING ===
 app.get("/api/table-booking", async (req, res) => {
   try {
     const result = await pool.query(
@@ -244,7 +252,6 @@ app.get("/api/table-booking", async (req, res) => {
   }
 });
 
-
 app.post("/api/table-booking", async (req, res) => {
   const {
     table_number,
@@ -255,19 +262,14 @@ app.post("/api/table-booking", async (req, res) => {
     note,
     people,
   } = req.body;
-
-  // Validate
   if (!table_number || !customer_name || !phone_number || !start_time || !end_time) {
     return res.status(400).json({ error: "❌ Missing required fields" });
   }
-
   try {
     const start = new Date(start_time);
     const end = new Date(end_time);
-
     const booking_date = start.toISOString().split("T")[0];
-    const booking_time = start.toISOString().split("T")[1].substring(0, 5); // HH:MM
-
+    const booking_time = start.toISOString().split("T")[1].substring(0, 5);
     const result = await pool.query(
       `INSERT INTO table_booking 
         (table_number, customer_name, phone_number, booking_date, booking_time, start_time, end_time, note, people)
@@ -285,14 +287,12 @@ app.post("/api/table-booking", async (req, res) => {
         people || null,
       ]
     );
-
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error("❌ Error booking table:", error);
     res.status(500).json({ error: "❌ Failed to book table" });
   }
 });
-
 
 app.delete("/api/table-booking/:id", async (req, res) => {
   const { id } = req.params;
@@ -305,7 +305,6 @@ app.delete("/api/table-booking/:id", async (req, res) => {
   }
 });
 
-// ================= START SERVER =================
 app.listen(PORT, () => {
   console.log(`✅ Server is running at http://localhost:${PORT}`);
 });
