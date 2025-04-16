@@ -113,6 +113,7 @@ app.post("/api/menu", upload.single("image"), async (req, res) => {
     const { name, category, price } = req.body;
     if (!name || !category || !price || !req.file) return res.status(400).json({ error: "❌ Missing fields or image" });
     const imageBuffer = fs.readFileSync(req.file.path);
+    fs.unlinkSync(req.file.path); // optional: delete uploaded file
     const result = await pool.query(
       "INSERT INTO menu (name, category, price, image) VALUES ($1, $2, $3, $4) RETURNING *",
       [name, category, price, imageBuffer]
@@ -121,6 +122,20 @@ app.post("/api/menu", upload.single("image"), async (req, res) => {
   } catch (error) {
     console.error("❌ Error adding menu item:", error);
     res.status(500).json({ error: "❌ Failed to add menu item" });
+  }
+});
+
+// ✅ Serve Menu Image
+app.get("/api/menu/:id/image", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query("SELECT image FROM menu WHERE id = $1", [id]);
+    if (!result.rows[0] || !result.rows[0].image) return res.status(404).send("Image not found");
+    res.set("Content-Type", "image/jpeg");
+    res.send(result.rows[0].image);
+  } catch (error) {
+    console.error("❌ Error fetching image:", error);
+    res.status(500).send("Error fetching image");
   }
 });
 
@@ -150,21 +165,23 @@ app.get("/api/orders", async (req, res) => {
 
 app.post("/api/orders", async (req, res) => {
   const {
-    customer_name, order_number, payment_method, total_amount, status,
-    order_date, source, note
+    customer_name, order_number, payment_method,
+    total_amount, status, order_date, source, note, phone_number
   } = req.body;
+
   if (!customer_name || !order_number || !payment_method || !total_amount || !status) {
     return res.status(400).json({ error: "❌ Missing required fields" });
   }
+
   try {
     const result = await pool.query(
       `INSERT INTO orders (
         customer_name, order_number, payment_method, total_amount, status,
-        order_date, source, note
+        order_date, source, note, phone_number
       ) VALUES (
-        $1, $2, $3, $4, $5, COALESCE($6, NOW()), $7, $8
+        $1, $2, $3, $4, $5, COALESCE($6, NOW()), $7, $8, $9
       ) RETURNING *`,
-      [customer_name, order_number, payment_method, total_amount, status, order_date || null, source || "pos", note || null]
+      [customer_name, order_number, payment_method, total_amount, status, order_date || null, source || "pos", note || null, phone_number]
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
@@ -173,6 +190,7 @@ app.post("/api/orders", async (req, res) => {
   }
 });
 
+/* Other order status update routes (prepare, approve, reject) */
 app.post("/api/orders/:id/prepare", async (req, res) => {
   const { id } = req.params;
   try {
@@ -182,28 +200,6 @@ app.post("/api/orders/:id/prepare", async (req, res) => {
   } catch (error) {
     console.error("❌ Error preparing order:", error);
     res.status(500).json({ error: "❌ Failed to mark as prepared" });
-  }
-});
-
-app.get("/api/orders/pending", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT * FROM orders WHERE status = 'pending' ORDER BY id DESC");
-    res.json(result.rows);
-  } catch (error) {
-    console.error("❌ Error fetching pending orders:", error);
-    res.status(500).json({ error: "❌ Failed to fetch pending orders" });
-  }
-});
-
-app.get("/api/orders/:id/status", async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await pool.query("SELECT status FROM orders WHERE id = $1", [id]);
-    if (result.rows.length === 0) return res.status(404).json({ error: "❌ Order not found" });
-    res.json({ status: result.rows[0].status });
-  } catch (error) {
-    console.error("❌ Error checking order status:", error);
-    res.status(500).json({ error: "❌ Failed to check order status" });
   }
 });
 
