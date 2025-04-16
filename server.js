@@ -10,8 +10,15 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-// ✅ Middleware
-app.use(cors({ origin: ["https://dineease-pos.vercel.app"], credentials: true }));
+// ✅ CORS for both web and pos
+app.use(cors({
+  origin: [
+    "https://dineease-pos.vercel.app",
+    "https://dineease-web.vercel.app",
+    "http://localhost:3000"
+  ],
+  credentials: true
+}));
 app.use(express.json());
 app.use(bodyParser.json());
 
@@ -40,7 +47,7 @@ app.get("/", (req, res) => {
   res.send("✅ POS API is running!");
 });
 
-// ============================ 🔐 USER ROUTES ============================
+// 🔐 USER ROUTES
 app.post("/api/users/login", async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ success: false, message: "❌ Missing credentials" });
@@ -77,14 +84,14 @@ app.get("/api/users", async (req, res) => {
 
 app.delete("/api/users/:id", async (req, res) => {
   try {
-    const result = await pool.query("DELETE FROM users WHERE id = $1", [req.params.id]);
+    await pool.query("DELETE FROM users WHERE id = $1", [req.params.id]);
     res.json({ message: "✅ User deleted" });
   } catch (error) {
     res.status(500).json({ error: "❌ Failed to delete user" });
   }
 });
 
-// ============================ 📋 MENU ROUTES ============================
+// 📋 MENU ROUTES
 app.get("/api/menu", async (req, res) => {
   try {
     const result = await pool.query("SELECT id, name, category, price FROM menu ORDER BY id ASC");
@@ -128,7 +135,7 @@ app.delete("/api/menu/:id", async (req, res) => {
   }
 });
 
-// ============================ 🧾 ORDER ROUTES ============================
+// 🧾 ORDER ROUTES
 app.post("/api/orders", async (req, res) => {
   const {
     customer_name, phone_number, order_number, payment_method,
@@ -233,7 +240,7 @@ app.get("/api/orders/:id/status", async (req, res) => {
   }
 });
 
-// ============================ 📈 SALES REPORT ============================
+// 📈 SALES REPORT
 app.get("/api/sales", async (req, res) => {
   const { type } = req.query;
   let groupBy = "TO_CHAR(order_date, 'YYYY-MM-DD')";
@@ -249,7 +256,7 @@ app.get("/api/sales", async (req, res) => {
   }
 });
 
-// ============================ 🍽️ TABLE BOOKING ============================
+// 🍽️ TABLE BOOKING
 app.get("/api/table-booking", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM table_booking ORDER BY id ASC");
