@@ -32,10 +32,10 @@ pool.connect()
     process.exit(1);
   });
 
-// ✅ File Upload Setup
+// ✅ File Upload
 const upload = multer({ dest: "uploads/" });
 
-// ✅ Test Route
+// ✅ Test
 app.get("/", (req, res) => {
   res.send("✅ POS API is running!");
 });
@@ -49,28 +49,23 @@ app.post("/api/users/login", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM users WHERE username = $1 AND password = $2", [username, password]);
     if (result.rows.length === 0) return res.status(401).json({ success: false, message: "❌ Invalid credentials" });
-    const user = result.rows[0];
-    res.status(200).json({ success: true, message: "✅ Login successful", role: user.role, user });
+    res.status(200).json({ success: true, message: "✅ Login successful", role: result.rows[0].role, user: result.rows[0] });
   } catch (error) {
     console.error("❌ Login error:", error);
-    res.status(500).json({ success: false, message: "❌ Server error. Please try again." });
+    res.status(500).json({ success: false, message: "❌ Server error" });
   }
 });
 
 app.post("/api/users", async (req, res) => {
   const { username, password, role } = req.body;
-  if (!username || !password || !role) return res.status(400).json({ error: "❌ Missing required fields" });
+  if (!username || !password || !role) return res.status(400).json({ error: "❌ Missing fields" });
   try {
-    const existing = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
-    if (existing.rows.length > 0) return res.status(400).json({ error: "❌ Username already exists" });
-    const result = await pool.query(
-      "INSERT INTO users (username, password, role) VALUES ($1, $2, $3) RETURNING id, username, role",
-      [username, password, role]
-    );
+    const exists = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
+    if (exists.rows.length > 0) return res.status(400).json({ error: "❌ Username exists" });
+    const result = await pool.query("INSERT INTO users (username, password, role) VALUES ($1, $2, $3) RETURNING id, username, role", [username, password, role]);
     res.status(201).json(result.rows[0]);
   } catch (error) {
-    console.error("❌ Error adding user:", error);
-    res.status(500).json({ error: "❌ Failed to add user" });
+    res.status(500).json({ error: "❌ Failed to create user" });
   }
 });
 
@@ -79,18 +74,15 @@ app.get("/api/users", async (req, res) => {
     const result = await pool.query("SELECT id, username, role FROM users ORDER BY id ASC");
     res.json(result.rows);
   } catch (error) {
-    console.error("❌ Error fetching users:", error);
     res.status(500).json({ error: "❌ Failed to fetch users" });
   }
 });
 
 app.delete("/api/users/:id", async (req, res) => {
-  const { id } = req.params;
   try {
-    await pool.query("DELETE FROM users WHERE id = $1", [id]);
-    res.json({ message: "✅ User deleted successfully!" });
+    const result = await pool.query("DELETE FROM users WHERE id = $1", [req.params.id]);
+    res.json({ message: "✅ User deleted" });
   } catch (error) {
-    console.error("❌ Error deleting user:", error);
     res.status(500).json({ error: "❌ Failed to delete user" });
   }
 });
@@ -103,7 +95,6 @@ app.get("/api/menu", async (req, res) => {
     const result = await pool.query("SELECT id, name, category, price FROM menu ORDER BY id ASC");
     res.json(result.rows);
   } catch (error) {
-    console.error("❌ Error fetching menu:", error);
     res.status(500).json({ error: "❌ Failed to fetch menu" });
   }
 });
@@ -111,7 +102,6 @@ app.get("/api/menu", async (req, res) => {
 app.post("/api/menu", upload.single("image"), async (req, res) => {
   try {
     const { name, category, price } = req.body;
-    if (!name || !category || !price || !req.file) return res.status(400).json({ error: "❌ Missing fields or image" });
     const imageBuffer = fs.readFileSync(req.file.path);
     const result = await pool.query(
       "INSERT INTO menu (name, category, price, image) VALUES ($1, $2, $3, $4) RETURNING *",
@@ -119,18 +109,26 @@ app.post("/api/menu", upload.single("image"), async (req, res) => {
     );
     res.status(201).json(result.rows[0]);
   } catch (error) {
-    console.error("❌ Error adding menu item:", error);
     res.status(500).json({ error: "❌ Failed to add menu item" });
   }
 });
 
-app.delete("/api/menu/:id", async (req, res) => {
-  const { id } = req.params;
+app.get("/api/menu/:id/image", async (req, res) => {
   try {
-    const result = await pool.query("DELETE FROM menu WHERE id = $1 RETURNING *", [id]);
+    const result = await pool.query("SELECT image FROM menu WHERE id = $1", [req.params.id]);
+    if (!result.rows.length) return res.status(404).send("Image not found");
+    res.set("Content-Type", "image/jpeg");
+    res.send(result.rows[0].image);
+  } catch (error) {
+    res.status(500).send("❌ Image fetch error");
+  }
+});
+
+app.delete("/api/menu/:id", async (req, res) => {
+  try {
+    const result = await pool.query("DELETE FROM menu WHERE id = $1 RETURNING *", [req.params.id]);
     res.json({ message: "✅ Menu item deleted", deletedItem: result.rows[0] });
   } catch (error) {
-    console.error("❌ Error deleting menu item:", error);
     res.status(500).json({ error: "❌ Failed to delete menu item" });
   }
 });
@@ -138,53 +136,29 @@ app.delete("/api/menu/:id", async (req, res) => {
 /* ============================
    🧾 ORDER ROUTES
 ============================ */
-app.get("/api/orders", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT * FROM orders ORDER BY id DESC");
-    res.json(result.rows);
-  } catch (error) {
-    console.error("❌ Error fetching orders:", error);
-    res.status(500).json({ error: "❌ Failed to fetch orders" });
-  }
-});
-
 app.post("/api/orders", async (req, res) => {
   const {
     customer_name, phone_number, order_number, payment_method,
     total_amount, status, order_date, source, note, items
   } = req.body;
 
-  if (!customer_name || !order_number || !payment_method || !total_amount || !status) {
-    return res.status(400).json({ error: "❌ Missing required fields" });
-  }
+  if (!customer_name || !order_number || !payment_method || !total_amount || !status)
+    return res.status(400).json({ error: "❌ Missing fields" });
 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-
-    const result = await client.query(
+    const orderResult = await client.query(
       `INSERT INTO orders (
-        customer_name, phone_number, order_number, payment_method, total_amount,
-        status, order_date, source, note
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, COALESCE($7, NOW()), $8, $9
-      ) RETURNING id`,
-      [
-        customer_name,
-        phone_number || null,
-        order_number,
-        payment_method,
-        total_amount,
-        status,
-        order_date || null,
-        source || "pos",
-        note || null
-      ]
+        customer_name, phone_number, order_number, payment_method,
+        total_amount, status, order_date, source, note
+      ) VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, NOW()), $8, $9) RETURNING id`,
+      [customer_name, phone_number, order_number, payment_method, total_amount, status, order_date, source, note]
     );
 
-    const orderId = result.rows[0].id;
+    const orderId = orderResult.rows[0].id;
 
-    if (Array.isArray(items) && items.length > 0) {
+    if (Array.isArray(items)) {
       for (const item of items) {
         await client.query(
           "INSERT INTO order_items (order_id, item_name, quantity, price) VALUES ($1, $2, $3, $4)",
@@ -197,27 +171,136 @@ app.post("/api/orders", async (req, res) => {
     res.status(201).json({ message: "✅ Order saved", orderId });
   } catch (error) {
     await client.query("ROLLBACK");
-    console.error("❌ Error saving order:", error);
     res.status(500).json({ error: "❌ Failed to save order" });
   } finally {
     client.release();
   }
 });
 
+app.get("/api/orders", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM orders ORDER BY id DESC");
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: "❌ Failed to fetch orders" });
+  }
+});
+
 app.get("/api/orders/pending", async (req, res) => {
   try {
-    const ordersResult = await pool.query("SELECT * FROM orders WHERE status = 'pending' ORDER BY id DESC");
-    const orders = ordersResult.rows;
+    const ordersRes = await pool.query("SELECT * FROM orders WHERE status = 'pending' ORDER BY id DESC");
+    const orders = ordersRes.rows;
 
     for (const order of orders) {
-      const itemsResult = await pool.query("SELECT item_name, quantity, price FROM order_items WHERE order_id = $1", [order.id]);
-      order.items = itemsResult.rows;
+      const itemsRes = await pool.query("SELECT item_name, quantity, price FROM order_items WHERE order_id = $1", [order.id]);
+      order.items = itemsRes.rows;
     }
 
     res.json(orders);
   } catch (error) {
-    console.error("❌ Error fetching pending orders:", error);
     res.status(500).json({ error: "❌ Failed to fetch pending orders" });
+  }
+});
+
+app.post("/api/orders/:id/prepare", async (req, res) => {
+  try {
+    const result = await pool.query("UPDATE orders SET status = 'prepared' WHERE id = $1 RETURNING *", [req.params.id]);
+    if (result.rowCount === 0) return res.status(404).json({ error: "❌ Order not found" });
+    res.json({ message: "✅ Marked prepared", order: result.rows[0] });
+  } catch (error) {
+    res.status(500).json({ error: "❌ Failed to update order" });
+  }
+});
+
+app.post("/api/orders/:id/approve", async (req, res) => {
+  try {
+    const result = await pool.query("UPDATE orders SET status = 'approved' WHERE id = $1 RETURNING *", [req.params.id]);
+    res.json({ message: "✅ Approved", order: result.rows[0] });
+  } catch (error) {
+    res.status(500).json({ error: "❌ Approval failed" });
+  }
+});
+
+app.post("/api/orders/:id/reject", async (req, res) => {
+  try {
+    const result = await pool.query("UPDATE orders SET status = 'rejected' WHERE id = $1 RETURNING *", [req.params.id]);
+    res.json({ message: "✅ Rejected", order: result.rows[0] });
+  } catch (error) {
+    res.status(500).json({ error: "❌ Rejection failed" });
+  }
+});
+
+app.get("/api/orders/:id/status", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT status FROM orders WHERE id = $1", [req.params.id]);
+    if (!result.rows.length) return res.status(404).json({ error: "Not found" });
+    res.json({ status: result.rows[0].status });
+  } catch (error) {
+    res.status(500).json({ error: "❌ Failed to get status" });
+  }
+});
+
+/* ============================
+   📈 SALES REPORT
+============================ */
+app.get("/api/sales", async (req, res) => {
+  const { type } = req.query;
+  let groupBy = "TO_CHAR(order_date, 'YYYY-MM-DD')";
+  if (type === "monthly") groupBy = "TO_CHAR(order_date, 'YYYY-MM')";
+  else if (type === "yearly") groupBy = "TO_CHAR(order_date, 'YYYY')";
+  try {
+    const result = await pool.query(
+      `SELECT ${groupBy} AS label, SUM(total_amount)::numeric(10,2) AS total FROM orders GROUP BY label ORDER BY label ASC`
+    );
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: "❌ Failed to fetch sales data" });
+  }
+});
+
+/* ============================
+   🍽️ TABLE BOOKING
+============================ */
+app.get("/api/table-booking", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM table_booking ORDER BY id ASC");
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: "❌ Failed to fetch table bookings" });
+  }
+});
+
+app.post("/api/table-booking", async (req, res) => {
+  const { table_number, customer_name, phone_number, start_time, end_time, note, people } = req.body;
+  if (!table_number || !customer_name || !phone_number || !start_time || !end_time)
+    return res.status(400).json({ error: "❌ Missing fields" });
+
+  try {
+    const start = new Date(start_time);
+    const end = new Date(end_time);
+    const booking_date = start.toISOString().split("T")[0];
+    const booking_time = start.toISOString().split("T")[1].slice(0, 5);
+
+    const result = await pool.query(
+      `INSERT INTO table_booking (
+        table_number, customer_name, phone_number, booking_date,
+        booking_time, start_time, end_time, note, people
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [table_number, customer_name, phone_number, booking_date, booking_time, start, end, note || null, people || null]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: "❌ Failed to book table" });
+  }
+});
+
+app.delete("/api/table-booking/:id", async (req, res) => {
+  try {
+    const result = await pool.query("DELETE FROM table_booking WHERE id = $1 RETURNING *", [req.params.id]);
+    res.json({ message: "✅ Table unbooked", deletedBooking: result.rows[0] });
+  } catch (error) {
+    res.status(500).json({ error: "❌ Failed to unbook table" });
   }
 });
 
