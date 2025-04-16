@@ -93,12 +93,16 @@ app.delete("/api/users/:id", async (req, res) => {
 
 // 📋 MENU ROUTES
 app.get("/api/menu", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT id, name, category, price FROM menu ORDER BY id ASC");
-    res.json(result.rows);
-  } catch (error) {
-    res.status(500).json({ error: "❌ Failed to fetch menu" });
-  }
+  const result = await pool.query("SELECT id, name, category, price FROM menu ORDER BY id ASC");
+  const menuWithImages = await Promise.all(result.rows.map(async (item) => {
+    const imageRes = await pool.query("SELECT encode(image, 'base64') AS image FROM menu WHERE id = $1", [item.id]);
+    const base64Image = imageRes.rows[0]?.image;
+    return {
+      ...item,
+      image: base64Image ? `data:image/jpeg;base64,${base64Image}` : null,
+    };
+  }));
+  res.json(menuWithImages);
 });
 
 app.post("/api/menu", upload.single("image"), async (req, res) => {
